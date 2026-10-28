@@ -1,0 +1,11 @@
+name = "PremiseSelection"
+version = "0.1.0"
+defaultTargets = ["premiseselection"]
+testDriver = "test"
+
+[[lean_lib]]
+name = "PremiseSelection"
+
+[[lean_exe]]
+name = "test"
+root = "Test"
