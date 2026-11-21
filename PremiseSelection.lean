@@ -1,3 +1,3 @@
 module
 
-import PremiseSelection.Basic
+public meta import PremiseSelection.Basic

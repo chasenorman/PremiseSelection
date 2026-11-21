@@ -12,6 +12,11 @@ namespace PremiseSelection
 
 public meta section
 
+register_option premiseSelection.downloadCache : Bool := {
+  defValue := true
+  descr := "Download a precomputed embedding cache for Mathlib and Init."
+}
+
 deriving instance FromJson for Suggestion
 
 run_cmd
@@ -105,14 +110,24 @@ def roundtrip (opts : Options) : Options := opts |>
 
 def select (log : String → String → IO Unit) (goal : MVarId) (config : LibrarySuggestions.Config) :
     MetaM (Array Suggestion) := withOptions roundtrip do
-  startPremiseDaemon log
+  startPremiseDaemon log (← premiseSelection.downloadCache.getM)
   setConfig (← premiseDb) (← premiseModel)
   let env ← getEnv
-  let mods := env.allImportedModuleNames.filter (!isDeniedModule env ·)
+  let mut mods := env.allImportedModuleNames.filter (!isDeniedModule env ·)
+  if config.caller == some "grind" then
+    mods := mods.filter fun mod => !Grind.isGrindAnnotatedModule env (env.getModuleIdx? mod).get!
   let cached ← getCachedModuleVersionTokens mods
   let tokens ← mods.mapM (getModuleVersionToken ·)
   let stale := (mods.zip (cached.zip tokens)).filterMap fun (mod, cached, token) =>
     if cached == token then none else some (mod, token)
+  if (← premiseSelection.downloadCache.getM) && stale.any fun (name, _) => name.getRoot == `Mathlib || name.getRoot == `Init then
+    let marker : FilePath := ⟨(← premiseDb).toString ++ ".version"⟩
+    let installed ← try pure (← IO.FS.readFile marker).trimAscii.toString catch _ => pure "none"
+    throwError s!"The Lean version does not match the cache ({installed}).\n\
+                  Please ensure the Mathlib version matches the PremiseSelection version ({cacheRelease}), \n\
+                  and clear the cache with `lake clean`.\n\
+                  To override and locally embed your Mathlib version, please use the following command:\n\
+                  `set_option premiseSelection.downloadCache false`."
   for h : i in [:stale.size] do
     let (mod, token) := stale[i]
     log "status" s!"Embedding {mod} ({i + 1}/{stale.size}):"

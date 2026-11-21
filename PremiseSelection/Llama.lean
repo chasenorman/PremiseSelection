@@ -15,7 +15,6 @@ def premisePort : Nat := 8766
 
 private def llamaCppRepo : String := "FrederickPu/llama.cpp"
 private def llamaCppTag : String := "premise-v14"
-def premiseCache : String := "chasenorman/premise-cache"
 def premiseSelectorRepo : String := "chasenorman/premise-selector-v4.35.0"
 
 private def runCommand (cmd : String) (args : Array String) : IO String := do
@@ -59,7 +58,9 @@ private def downloadWithProgress (url : String) (dest : FilePath)
     let now ← size?
     stalled := if now == last then stalled + 1 else 0
     last := now
-  if !(← part.pathExists) && (← dest.pathExists) then return
+  if (← dest.pathExists) then
+    if (← part.pathExists) then IO.FS.removeFile part
+    return
   IO.FS.createDirAll dir
   let child ← IO.Process.spawn {
     cmd := "curl"
@@ -150,9 +151,10 @@ def killDaemon (port : Nat) : IO Unit := do
     unless ← isPortHealthy port do return
     IO.sleep 250
 
+def premiseCacheRepo : String := "chasenorman/PremiseSelector"
 def cacheRelease : String := "v" ++ Lean.versionString
 def cacheUrl (file : String) : String :=
-  s!"https://huggingface.co/datasets/{premiseCache}/resolve/{cacheRelease}/{file}"
+  s!"https://github.com/{premiseCacheRepo}/releases/download/{cacheRelease}/{file}"
 
 /-- Whether the dataset has `file` for this Lean version (`false` offline too). -/
 def cacheAvailable (file : String) : IO Bool := do
@@ -163,6 +165,7 @@ has it. A running daemon is stopped first so it respawns on the new database. -/
 private def downloadCache (db : FilePath) (file : String) : IO Bool := do
   unless ← cacheAvailable file do return false
   killDaemon premisePort
+  if (← db.pathExists) then IO.FS.removeFile db
   downloadWithProgress log (cacheUrl file) db (what := s!"{file} for Lean {cacheRelease}")
   return true
 
@@ -170,7 +173,7 @@ private def downloadCache (db : FilePath) (file : String) : IO Bool := do
 (`<db>.version` records which version is installed). Otherwise seed a missing
 `db` with Lean's own cache. -/
 private def ensureCache (db : FilePath) : IO Unit := do
-  if ← (do let _ ← findOLean `Mathlib; pure true) <|> pure false then
+  if ← try let _ ← findOLean `Mathlib; pure true catch _ => pure false then
     let marker : FilePath := ⟨db.toString ++ ".version"⟩
     let installed ← try pure (← IO.FS.readFile marker).trimAscii.toString catch _ => pure ""
     if installed == cacheRelease && (← db.pathExists) then return
@@ -182,7 +185,7 @@ def premiseDb : IO FilePath := return (← libDir) / "premise.db"
 
 def premiseModel : IO FilePath := return (← libDir) / "premise-selector-v4.35.0.gguf"
 
-def startPremiseDaemon (prebuilt := true) : IO Unit := do
+def startPremiseDaemon (prebuilt : Bool) : IO Unit := do
   let db ← premiseDb
   let model ← premiseModel
   if prebuilt then ensureCache log db
