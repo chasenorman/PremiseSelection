@@ -151,7 +151,7 @@ def killDaemon (port : Nat) : IO Unit := do
     unless ← isPortHealthy port do return
     IO.sleep 250
 
-def premiseCacheRepo : String := "chasenorman/PremiseSelector"
+def premiseCacheRepo : String := "chasenorman/PremiseSelection"
 def cacheRelease : String := "v" ++ Lean.versionString
 def cacheUrl (file : String) : String :=
   s!"https://github.com/{premiseCacheRepo}/releases/download/{cacheRelease}/{file}"
